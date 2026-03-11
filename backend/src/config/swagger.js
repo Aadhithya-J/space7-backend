@@ -10,7 +10,7 @@ const swaggerDefinition = {
         contact: { name: 'space7 Backend Team' },
     },
     servers: [
-        { url: 'http://localhost:5000/api', description: 'Local development' },
+        { url: 'https://space7backend.onrender.com/api', description: 'Local development' },
     ],
     components: {
         securitySchemes: {
