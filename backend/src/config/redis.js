@@ -1,10 +1,6 @@
 const Redis = require('ioredis');
 
-const redis = new Redis({
-    host: process.env.REDIS_HOST || 'redis',
-    port: process.env.REDIS_PORT || 6379,
-    maxRetriesPerRequest: null, // required by BullMQ
-});
+const redis = new Redis(process.env.REDIS_URL);
 
 redis.on('connect', () => {
     console.log('✅ Redis connected');
