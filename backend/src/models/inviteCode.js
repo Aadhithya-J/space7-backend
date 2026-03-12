@@ -34,7 +34,7 @@ const InviteCode = sequelize.define('InviteCode', {
         type: DataTypes.UUID,
         allowNull: true,
         defaultValue: null,
-        references: { model: 'users', key: 'user_id' },
+        // FK relationship defined in models/index.js via belongsTo
     },
 }, {
     tableName: 'invite_codes',
