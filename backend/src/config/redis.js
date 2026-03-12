@@ -11,5 +11,5 @@ redis.on('connect', () => {
 redis.on('error', (err) => {
   console.error('❌ Redis connection error:', err.message);
 });
-
+console.log("REDIS_URL =", process.env.REDIS_URL);
 module.exports = redis;
