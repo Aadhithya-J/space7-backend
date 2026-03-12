@@ -11,32 +11,52 @@ class AuthService {
 
     /**
      * Register a new user.
-     * Stores signup data temporarily in Redis and sends OTP via email.
+     * Stores signup data + OTP together in Redis and sends OTP via email.
      */
     async signup({ username, email, password }) {
 
         const existing = await User.findOne({ where: { email } });
 
         if (existing && existing.is_verified) {
-            throw Object.assign(new Error('This email is already associated with an account'), { status: 409 });
+            throw Object.assign(
+                new Error('This email is already associated with an account'),
+                { status: 409 }
+            );
         }
 
         const password_hash = await bcrypt.hash(password, 12);
         const otp = generateOTP();
 
-        // Store signup data temporarily in Redis
-        await redis.set(
-            `signup:${email}`,
-            JSON.stringify({ username, email, password_hash }),
-            'EX',
-            OTP_EXPIRY
-        );
+        try {
 
-        // Store OTP
-        await redis.set(`otp:${email}`, otp, 'EX', OTP_EXPIRY);
+            // Ensure Redis connection is alive (prevents EPIPE)
+            await redis.ping();
+
+            // Store signup data + OTP in ONE key
+            await redis.set(
+                `signup:${email}`,
+                JSON.stringify({
+                    username,
+                    email,
+                    password_hash,
+                    otp
+                }),
+                'EX',
+                OTP_EXPIRY
+            );
+
+        } catch (redisErr) {
+            console.error('Redis write failed:', redisErr.message);
+
+            throw Object.assign(
+                new Error('Temporary server issue. Please try again.'),
+                { status: 500 }
+            );
+        }
 
         // Queue email
         try {
+
             await emailQueue.add('send-otp', {
                 to: email,
                 subject: 'space7 — Verify your email',
@@ -44,10 +64,16 @@ class AuthService {
                     <h2>Welcome to space7!</h2>
                     <p>Your verification code is: <strong>${otp}</strong></p>
                     <p>This code expires in ${OTP_EXPIRY / 60} minutes.</p>
-                `,
+                `
             });
+
         } catch (emailErr) {
-            console.error('⚠️ Failed to queue verification email:', emailErr.message);
+
+            console.error(
+                '⚠️ Failed to queue verification email:',
+                emailErr.message
+            );
+
         }
 
         return {
@@ -62,24 +88,29 @@ class AuthService {
      */
     async verifyOTP({ email, otp }) {
 
-        const storedOTP = await redis.get(`otp:${email}`);
-
-        if (!storedOTP) {
-            throw Object.assign(new Error('Your verification code has expired. Please request a new one'), { status: 400 });
-        }
-
-        // Ensure string comparison to avoid type mismatch
-        if (String(storedOTP) !== String(otp)) {
-            throw Object.assign(new Error('The verification code you entered is incorrect'), { status: 400 });
-        }
-
         const signupData = await redis.get(`signup:${email}`);
 
         if (!signupData) {
-            throw Object.assign(new Error('Your signup session has expired. Please register again'), { status: 400 });
+            throw Object.assign(
+                new Error('Your signup session has expired. Please register again'),
+                { status: 400 }
+            );
         }
 
-        const { username, password_hash } = JSON.parse(signupData);
+        const parsed = JSON.parse(signupData);
+
+        const {
+            username,
+            password_hash,
+            otp: storedOTP
+        } = parsed;
+
+        if (String(storedOTP) !== String(otp)) {
+            throw Object.assign(
+                new Error('The verification code you entered is incorrect'),
+                { status: 400 }
+            );
+        }
 
         const user = await User.create({
             username,
@@ -88,7 +119,6 @@ class AuthService {
             is_verified: true
         });
 
-        await redis.del(`otp:${email}`);
         await redis.del(`signup:${email}`);
 
         const token = signToken({
@@ -116,17 +146,26 @@ class AuthService {
         const user = await User.findOne({ where: { email } });
 
         if (!user) {
-            throw Object.assign(new Error('The email or password you entered is incorrect'), { status: 401 });
+            throw Object.assign(
+                new Error('The email or password you entered is incorrect'),
+                { status: 401 }
+            );
         }
 
         if (!user.is_verified) {
-            throw Object.assign(new Error('Please verify your email address before signing in'), { status: 403 });
+            throw Object.assign(
+                new Error('Please verify your email address before signing in'),
+                { status: 403 }
+            );
         }
 
         const valid = await bcrypt.compare(password, user.password_hash);
 
         if (!valid) {
-            throw Object.assign(new Error('The email or password you entered is incorrect'), { status: 401 });
+            throw Object.assign(
+                new Error('The email or password you entered is incorrect'),
+                { status: 401 }
+            );
         }
 
         const token = signToken({
@@ -142,7 +181,7 @@ class AuthService {
                 username: user.username,
                 email: user.email,
                 bio: user.bio,
-                profile_picture: user.profile_picture,
+                profile_picture: user.profile_picture
             }
         };
     }
@@ -156,12 +195,20 @@ class AuthService {
         const user = await User.findOne({ where: { email } });
 
         if (!user) {
-            throw Object.assign(new Error("We couldn't find an account with that email address"), { status: 404 });
+            throw Object.assign(
+                new Error("We couldn't find an account with that email address"),
+                { status: 404 }
+            );
         }
 
         const otp = generateOTP();
 
-        await redis.set(`otp:reset:${email}`, otp, 'EX', OTP_EXPIRY);
+        await redis.set(
+            `otp:reset:${email}`,
+            otp,
+            'EX',
+            OTP_EXPIRY
+        );
 
         await emailQueue.add('send-reset-otp', {
             to: email,
@@ -170,10 +217,12 @@ class AuthService {
                 <h2>Password Reset</h2>
                 <p>Your reset code is: <strong>${otp}</strong></p>
                 <p>This code expires in ${OTP_EXPIRY / 60} minutes.</p>
-            `,
+            `
         });
 
-        return { message: 'A password reset code has been sent to your email' };
+        return {
+            message: 'A password reset code has been sent to your email'
+        };
     }
 
 
@@ -185,13 +234,19 @@ class AuthService {
         const storedOTP = await redis.get(`otp:reset:${email}`);
 
         if (!storedOTP || String(storedOTP) !== String(otp)) {
-            throw Object.assign(new Error('The reset code you entered is invalid or has expired'), { status: 400 });
+            throw Object.assign(
+                new Error('The reset code you entered is invalid or has expired'),
+                { status: 400 }
+            );
         }
 
         const user = await User.findOne({ where: { email } });
 
         if (!user) {
-            throw Object.assign(new Error("We couldn't find an account with that email address"), { status: 404 });
+            throw Object.assign(
+                new Error("We couldn't find an account with that email address"),
+                { status: 404 }
+            );
         }
 
         user.password_hash = await bcrypt.hash(newPassword, 12);
@@ -200,7 +255,9 @@ class AuthService {
 
         await redis.del(`otp:reset:${email}`);
 
-        return { message: 'Your password has been updated successfully' };
+        return {
+            message: 'Your password has been updated successfully'
+        };
     }
 }
 
