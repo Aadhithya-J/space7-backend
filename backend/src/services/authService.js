@@ -53,7 +53,7 @@ class AuthService {
                 { status: 500 }
             );
         }
-
+/*
         // Queue email
         try {
 
@@ -76,11 +76,10 @@ class AuthService {
 
         }
 
-        return {
-            message: 'A verification code has been sent to your email',
-            email
-        };
+*/       
+        console.log("OTP generated:", otp);
     }
+
 
 
     /**
