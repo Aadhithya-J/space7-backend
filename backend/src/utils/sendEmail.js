@@ -43,7 +43,8 @@ async function sendEmail(to, subject, html) {
             sender,
             to: [{ email: to }],
             subject,
-            html,
+            htmlContent: html,
+            textContent: html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(),
         });
         console.log(`Email sent to ${to}`);
     } catch (error) {
