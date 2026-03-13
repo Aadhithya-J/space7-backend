@@ -48,7 +48,7 @@ User.hasMany(Notification, { foreignKey: 'user_id', as: 'notifications' });
 Notification.belongsTo(User, { foreignKey: 'user_id' });
 
 // ── InviteCode ↔ User (used_by) ──
-InviteCode.belongsTo(User, { foreignKey: 'used_by', as: 'usedByUser' });
+InviteCode.belongsTo(User, { foreignKey: 'used_by', as: 'usedByUser', constraints: false });
 
 const models = {
     User,
