@@ -1,26 +1,33 @@
-const nodemailer = require('nodemailer');
+const Brevo = require('@getbrevo/brevo');
 
-const smtpPort = Number(process.env.SMTP_PORT) || 587;
-const smtpSecure = process.env.SMTP_SECURE === 'true'; // Brevo uses false for 587
+const transactionalEmailsApi = new Brevo.TransactionalEmailsApi();
 
-console.log("SMTP CONFIG", {
-  host: process.env.SMTP_HOST,
-  port: process.env.SMTP_PORT,
-  user: process.env.SMTP_USER
-});
+transactionalEmailsApi.setApiKey(
+    Brevo.TransactionalEmailsApiApiKeys.apiKey,
+    process.env.BREVO_API_KEY
+);
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT),
-  secure: process.env.SMTP_SECURE === "true",
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
-  },
-  connectionTimeout: 30000,
-  greetingTimeout: 30000,
-  socketTimeout: 30000
-});
+function parseSender() {
+    const configuredSender = process.env.BREVO_SENDER_EMAIL || process.env.SMTP_FROM;
+
+    if (!configuredSender) {
+        throw new Error('BREVO_SENDER_EMAIL is required');
+    }
+
+    const match = configuredSender.match(/^(.*)<(.+)>$/);
+
+    if (match) {
+        return {
+            name: match[1].trim().replace(/^"|"$/g, '') || 'Space7',
+            email: match[2].trim(),
+        };
+    }
+
+    return {
+        name: process.env.BREVO_SENDER_NAME || 'Space7',
+        email: configuredSender.trim(),
+    };
+}
 
 /**
  * Send an email.
@@ -29,17 +36,19 @@ const transporter = nodemailer.createTransport({
  * @param {string} html - HTML body
  */
 async function sendEmail(to, subject, html) {
+    const sender = parseSender();
+
     try {
-        const info = await transporter.sendMail({
-            from: process.env.SMTP_FROM || `"Space7" <${process.env.SMTP_USER}>`,
-            to,
+        await transactionalEmailsApi.sendTransacEmail({
+            sender,
+            to: [{ email: to }],
             subject,
             html,
         });
-
-        console.log("Email sent:", info.messageId);
+        console.log(`Email sent to ${to}`);
     } catch (error) {
-        console.error("Email sending failed:", error);
+        const details = error.response?.body || error.message || error;
+        console.error('Email sending failed:', details);
         throw error;
     }
 }
