@@ -1,11 +1,12 @@
 const bcrypt = require('bcrypt');
+const { Op } = require('sequelize');
 const { User } = require('../models');
 const redis = require('../config/redis');
 const generateOTP = require('../utils/generateOTP');
 const { signToken } = require('../utils/jwt');
 const emailQueue = require('../queues/emailQueue');
 
-const OTP_EXPIRY = parseInt(process.env.OTP_EXPIRY_SECONDS) || 300;
+const OTP_EXPIRY = parseInt(process.env.OTP_EXPIRY_SECONDS, 10) || 300;
 const REDIS_OPERATION_TIMEOUT = 8000;
 
 function withTimeout(promise, label) {
@@ -19,15 +20,18 @@ function withTimeout(promise, label) {
     ]);
 }
 
-class AuthService {
+function normalizeEmail(email) {
+    return typeof email === 'string' ? email.trim().toLowerCase() : email;
+}
 
+class AuthService {
     /**
      * Register a new user.
      * Stores signup data + OTP together in Redis and sends OTP via email.
      */
     async signup({ username, email, password }) {
-
-        const existing = await User.findOne({ where: { email } });
+        const normalizedEmail = normalizeEmail(email);
+        const existing = await User.findOne({ where: { email: normalizedEmail } });
 
         if (existing && existing.is_verified) {
             throw Object.assign(
@@ -40,26 +44,21 @@ class AuthService {
         const otp = generateOTP();
 
         try {
-
-            // Ensure Redis connection is alive (prevents EPIPE)
             await withTimeout(redis.ping(), 'Redis ping');
-
-            // Store signup data + OTP in ONE key
             await withTimeout(
                 redis.set(
-                    `signup:${email}`,
+                    `signup:${normalizedEmail}`,
                     JSON.stringify({
                         username,
-                        email,
+                        email: normalizedEmail,
                         password_hash,
-                        otp
+                        otp,
                     }),
                     'EX',
                     OTP_EXPIRY
                 ),
                 'Redis signup write'
             );
-
         } catch (redisErr) {
             console.error('Redis write failed:', redisErr.message);
 
@@ -69,43 +68,33 @@ class AuthService {
             );
         }
 
-        // Queue email
         try {
-
             await emailQueue.add('send-otp', {
-                to: email,
-                subject: 'space7 — Verify your email',
+                to: normalizedEmail,
+                subject: 'space7 - Verify your email',
                 html: `
                     <h2>Welcome to space7!</h2>
                     <p>Your verification code is: <strong>${otp}</strong></p>
                     <p>This code expires in ${OTP_EXPIRY / 60} minutes.</p>
-                `
+                `,
             });
-
         } catch (emailErr) {
-
-            console.error(
-                '⚠️ Failed to queue verification email:',
-                emailErr.message
-            );
-
+            console.error('Failed to queue verification email:', emailErr.message);
         }
 
-    
-                return {
+        return {
             message: 'A verification code has been sent to your email',
-            email
-        };    }
-
-
+            email: normalizedEmail,
+        };
+    }
 
     /**
      * Verify OTP and create the user.
      */
     async verifyOTP({ email, otp }) {
-
+        const normalizedEmail = normalizeEmail(email);
         const signupData = await withTimeout(
-            redis.get(`signup:${email}`),
+            redis.get(`signup:${normalizedEmail}`),
             'Redis signup read'
         );
 
@@ -117,12 +106,7 @@ class AuthService {
         }
 
         const parsed = JSON.parse(signupData);
-
-        const {
-            username,
-            password_hash,
-            otp: storedOTP
-        } = parsed;
+        const { username, password_hash, otp: storedOTP } = parsed;
 
         if (String(storedOTP) !== String(otp)) {
             throw Object.assign(
@@ -133,19 +117,19 @@ class AuthService {
 
         const user = await User.create({
             username,
-            email,
+            email: normalizedEmail,
             password_hash,
-            is_verified: true
+            is_verified: true,
         });
 
         await withTimeout(
-            redis.del(`signup:${email}`),
+            redis.del(`signup:${normalizedEmail}`),
             'Redis signup cleanup'
         );
 
         const token = signToken({
             user_id: user.user_id,
-            email: user.email
+            email: user.email,
         });
 
         return {
@@ -154,22 +138,30 @@ class AuthService {
             user: {
                 user_id: user.user_id,
                 username: user.username,
-                email: user.email
-            }
+                email: user.email,
+            },
         };
     }
 
-
     /**
-     * Login with email and password.
+     * Login with username or email and password.
      */
-    async login({ email, password }) {
+    async login({ identifier, email, password }) {
+        const loginIdentifier = (identifier || email || '').trim();
+        const normalizedEmail = normalizeEmail(loginIdentifier);
 
-        const user = await User.findOne({ where: { email } });
+        const user = await User.findOne({
+            where: {
+                [Op.or]: [
+                    { username: loginIdentifier },
+                    { email: normalizedEmail },
+                ],
+            },
+        });
 
         if (!user) {
             throw Object.assign(
-                new Error('The email or password you entered is incorrect'),
+                new Error('The username/email or password you entered is incorrect'),
                 { status: 401 }
             );
         }
@@ -185,14 +177,14 @@ class AuthService {
 
         if (!valid) {
             throw Object.assign(
-                new Error('The email or password you entered is incorrect'),
+                new Error('The username/email or password you entered is incorrect'),
                 { status: 401 }
             );
         }
 
         const token = signToken({
             user_id: user.user_id,
-            email: user.email
+            email: user.email,
         });
 
         return {
@@ -203,18 +195,17 @@ class AuthService {
                 username: user.username,
                 email: user.email,
                 bio: user.bio,
-                profile_picture: user.profile_picture
-            }
+                profile_picture: user.profile_picture,
+            },
         };
     }
-
 
     /**
      * Send OTP for password reset.
      */
     async forgotPassword({ email }) {
-
-        const user = await User.findOne({ where: { email } });
+        const normalizedEmail = normalizeEmail(email);
+        const user = await User.findOne({ where: { email: normalizedEmail } });
 
         if (!user) {
             throw Object.assign(
@@ -227,7 +218,7 @@ class AuthService {
 
         await withTimeout(
             redis.set(
-                `otp:reset:${email}`,
+                `otp:reset:${normalizedEmail}`,
                 otp,
                 'EX',
                 OTP_EXPIRY
@@ -236,28 +227,27 @@ class AuthService {
         );
 
         await emailQueue.add('send-reset-otp', {
-            to: email,
-            subject: 'space7 — Password Reset',
+            to: normalizedEmail,
+            subject: 'space7 - Password Reset',
             html: `
                 <h2>Password Reset</h2>
                 <p>Your reset code is: <strong>${otp}</strong></p>
                 <p>This code expires in ${OTP_EXPIRY / 60} minutes.</p>
-            `
+            `,
         });
 
         return {
-            message: 'A password reset code has been sent to your email'
+            message: 'A password reset code has been sent to your email',
         };
     }
-
 
     /**
      * Reset password using OTP.
      */
     async resetPassword({ email, otp, newPassword }) {
-
+        const normalizedEmail = normalizeEmail(email);
         const storedOTP = await withTimeout(
-            redis.get(`otp:reset:${email}`),
+            redis.get(`otp:reset:${normalizedEmail}`),
             'Redis reset OTP read'
         );
 
@@ -268,7 +258,7 @@ class AuthService {
             );
         }
 
-        const user = await User.findOne({ where: { email } });
+        const user = await User.findOne({ where: { email: normalizedEmail } });
 
         if (!user) {
             throw Object.assign(
@@ -278,16 +268,15 @@ class AuthService {
         }
 
         user.password_hash = await bcrypt.hash(newPassword, 12);
-
         await user.save();
 
         await withTimeout(
-            redis.del(`otp:reset:${email}`),
+            redis.del(`otp:reset:${normalizedEmail}`),
             'Redis reset OTP cleanup'
         );
 
         return {
-            message: 'Your password has been updated successfully'
+            message: 'Your password has been updated successfully',
         };
     }
 }

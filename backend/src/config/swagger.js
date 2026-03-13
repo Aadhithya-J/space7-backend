@@ -42,9 +42,9 @@ const swaggerDefinition = {
             },
             LoginRequest: {
                 type: 'object',
-                required: ['email', 'password'],
+                required: ['identifier', 'password'],
                 properties: {
-                    email: { type: 'string', format: 'email', example: 'john@example.com' },
+                    identifier: { type: 'string', example: 'john@example.com' },
                     password: { type: 'string', example: 'SecureP@ss1' },
                 },
             },
@@ -295,8 +295,8 @@ const swaggerDefinition = {
         '/auth/login': {
             post: {
                 tags: ['Authentication'],
-                summary: 'Login with email and password',
-                description: 'Authenticates the user and returns a JWT token.',
+                summary: 'Login with username or email and password',
+                description: 'Authenticates the user with either a username or an email address and returns a JWT token.',
                 requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/LoginRequest' } } } },
                 responses: {
                     200: { description: 'Login successful', content: { 'application/json': { schema: { $ref: '#/components/schemas/AuthResponse' } } } },

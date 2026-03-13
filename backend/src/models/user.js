@@ -16,6 +16,12 @@ const User = sequelize.define('User', {
         allowNull: false,
         unique: true,
         validate: { isEmail: true },
+        set(value) {
+            this.setDataValue(
+                'email',
+                typeof value === 'string' ? value.trim().toLowerCase() : value
+            );
+        },
     },
     password_hash: {
         type: DataTypes.STRING(255),
