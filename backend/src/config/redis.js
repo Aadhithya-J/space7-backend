@@ -1,6 +1,7 @@
 const Redis = require("ioredis");
 
 const redisUrl = process.env.REDIS_URL;
+
 const useTls =
   process.env.REDIS_TLS === "true" ||
   (typeof redisUrl === "string" &&
@@ -9,12 +10,13 @@ const useTls =
 function buildRedisConfig() {
   if (redisUrl) {
     const parsed = new URL(redisUrl);
+
     return {
       host: parsed.hostname,
       port: Number(parsed.port || 6379),
       username: parsed.username || undefined,
       password: parsed.password || undefined,
-      tls: useTls ? {} : undefined,
+      tls: useTls ? { rejectUnauthorized: false } : undefined,
     };
   }
 
@@ -23,13 +25,14 @@ function buildRedisConfig() {
     port: Number(process.env.REDIS_PORT || 6379),
     username: process.env.REDIS_USER || undefined,
     password: process.env.REDIS_PASSWORD || undefined,
-    tls: useTls ? {} : undefined,
+    tls: useTls ? { rejectUnauthorized: false } : undefined,
   };
 }
 
 const baseRedisConfig = buildRedisConfig();
 
-const redis = new Redis(baseRedisConfig, {
+const redis = new Redis({
+  ...baseRedisConfig,
   maxRetriesPerRequest: 1,
   enableReadyCheck: false,
   connectTimeout: 10000,
@@ -37,8 +40,7 @@ const redis = new Redis(baseRedisConfig, {
     return Math.min(times * 200, 3000);
   },
   reconnectOnError(err) {
-    const targetError = "READONLY";
-    if (err.message.includes(targetError)) {
+    if (err.message.includes("READONLY")) {
       return true;
     }
   }

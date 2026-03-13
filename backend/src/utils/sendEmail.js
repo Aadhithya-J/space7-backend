@@ -1,21 +1,22 @@
 const nodemailer = require('nodemailer');
-const smtpPort = Number(process.env.SMTP_PORT || 587);
-const smtpSecure = typeof process.env.SMTP_SECURE === 'string'
-    ? process.env.SMTP_SECURE === 'true'
-    : smtpPort === 465;
+
+const smtpPort = Number(process.env.SMTP_PORT) || 587;
+const smtpSecure = process.env.SMTP_SECURE === 'true'; // Brevo uses false for 587
 
 const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: smtpPort,
-    secure: smtpSecure,
-    requireTLS: !smtpSecure,
-    connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT || 15000),
-    greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT || 15000),
-    socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT || 20000),
+    secure: smtpSecure, // false for port 587
     auth: {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
     },
+    tls: {
+        rejectUnauthorized: false,
+    },
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 20000,
 });
 
 /**
@@ -25,12 +26,19 @@ const transporter = nodemailer.createTransport({
  * @param {string} html - HTML body
  */
 async function sendEmail(to, subject, html) {
-    await transporter.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
-        to,
-        subject,
-        html,
-    });
+    try {
+        const info = await transporter.sendMail({
+            from: process.env.SMTP_FROM || `"Space7" <${process.env.SMTP_USER}>`,
+            to,
+            subject,
+            html,
+        });
+
+        console.log("Email sent:", info.messageId);
+    } catch (error) {
+        console.error("Email sending failed:", error);
+        throw error;
+    }
 }
 
 module.exports = sendEmail;
