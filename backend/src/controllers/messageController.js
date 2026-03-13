@@ -1,4 +1,5 @@
 const messageService = require('../services/messageService');
+const { getIO } = require('../sockets/socketServer');
 
 class MessageController {
     async send(req, res, next) {
@@ -10,6 +11,7 @@ class MessageController {
                 file: req.file || null,
                 mediaType: req.body.media_type || null,
             });
+            getIO().to(`space:${req.params.spaceId}`).emit('receive_message', message);
             res.status(201).json(message);
         } catch (err) { next(err); }
     }
@@ -28,6 +30,11 @@ class MessageController {
     async appreciate(req, res, next) {
         try {
             const result = await messageService.toggleAppreciation(req.params.messageId, req.user.user_id);
+            getIO().to(`space:${req.params.spaceId}`).emit('message_appreciated', {
+                messageId: req.params.messageId,
+                appreciated: result.appreciated,
+                userId: req.user.user_id,
+            });
             res.json(result);
         } catch (err) { next(err); }
     }
