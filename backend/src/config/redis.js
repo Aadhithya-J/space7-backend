@@ -6,7 +6,7 @@ const useTls =
   (typeof redisUrl === "string" &&
     (redisUrl.startsWith("rediss://") || redisUrl.includes("upstash.io")));
 
-const redisConfig = redisUrl
+const baseRedisConfig = redisUrl
   ? {
       url: redisUrl,
       tls: useTls ? {} : undefined,
@@ -18,7 +18,7 @@ const redisConfig = redisUrl
       tls: useTls ? {} : undefined,
     };
 
-const redis = new Redis(redisConfig, {
+const redis = new Redis(baseRedisConfig, {
   maxRetriesPerRequest: 1,
   enableReadyCheck: false,
   connectTimeout: 10000,
@@ -45,4 +45,12 @@ redis.on("error", (err) => {
   console.error("Redis error:", err.message);
 });
 
+const bullConnection = {
+  ...baseRedisConfig,
+  maxRetriesPerRequest: null,
+  enableReadyCheck: false,
+  connectTimeout: 10000,
+};
+
 module.exports = redis;
+module.exports.bullConnection = bullConnection;

@@ -1,5 +1,5 @@
 const { Worker } = require('bullmq');
-const redis = require('../config/redis');
+const { bullConnection } = require('../config/redis');
 const { Notification } = require('../models');
 
 const notificationWorker = new Worker(
@@ -17,7 +17,7 @@ const notificationWorker = new Worker(
 
         console.log(`📬 Notification created for user ${user_id}: ${type}`);
     },
-    { connection: redis }
+    { connection: bullConnection }
 );
 
 notificationWorker.on('failed', (job, err) => {

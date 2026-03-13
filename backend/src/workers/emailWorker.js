@@ -1,5 +1,5 @@
 const { Worker } = require('bullmq');
-const redis = require('../config/redis');
+const { bullConnection } = require('../config/redis');
 const sendEmail = require('../utils/sendEmail');
 
 const emailWorker = new Worker(
@@ -9,7 +9,7 @@ const emailWorker = new Worker(
         await sendEmail(to, subject, html);
         console.log(`📧 Email sent to ${to}: ${subject}`);
     },
-    { connection: redis }
+    { connection: bullConnection }
 );
 
 emailWorker.on('failed', (job, err) => {
