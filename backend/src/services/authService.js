@@ -6,6 +6,18 @@ const { signToken } = require('../utils/jwt');
 const emailQueue = require('../queues/emailQueue');
 
 const OTP_EXPIRY = parseInt(process.env.OTP_EXPIRY_SECONDS) || 300;
+const REDIS_OPERATION_TIMEOUT = 8000;
+
+function withTimeout(promise, label) {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => {
+            setTimeout(() => {
+                reject(new Error(`${label} timed out`));
+            }, REDIS_OPERATION_TIMEOUT);
+        }),
+    ]);
+}
 
 class AuthService {
 
@@ -30,19 +42,22 @@ class AuthService {
         try {
 
             // Ensure Redis connection is alive (prevents EPIPE)
-            await redis.ping();
+            await withTimeout(redis.ping(), 'Redis ping');
 
             // Store signup data + OTP in ONE key
-            await redis.set(
-                `signup:${email}`,
-                JSON.stringify({
-                    username,
-                    email,
-                    password_hash,
-                    otp
-                }),
-                'EX',
-                OTP_EXPIRY
+            await withTimeout(
+                redis.set(
+                    `signup:${email}`,
+                    JSON.stringify({
+                        username,
+                        email,
+                        password_hash,
+                        otp
+                    }),
+                    'EX',
+                    OTP_EXPIRY
+                ),
+                'Redis signup write'
             );
 
         } catch (redisErr) {
@@ -89,7 +104,10 @@ class AuthService {
      */
     async verifyOTP({ email, otp }) {
 
-        const signupData = await redis.get(`signup:${email}`);
+        const signupData = await withTimeout(
+            redis.get(`signup:${email}`),
+            'Redis signup read'
+        );
 
         if (!signupData) {
             throw Object.assign(
@@ -120,7 +138,10 @@ class AuthService {
             is_verified: true
         });
 
-        await redis.del(`signup:${email}`);
+        await withTimeout(
+            redis.del(`signup:${email}`),
+            'Redis signup cleanup'
+        );
 
         const token = signToken({
             user_id: user.user_id,
@@ -204,11 +225,14 @@ class AuthService {
 
         const otp = generateOTP();
 
-        await redis.set(
-            `otp:reset:${email}`,
-            otp,
-            'EX',
-            OTP_EXPIRY
+        await withTimeout(
+            redis.set(
+                `otp:reset:${email}`,
+                otp,
+                'EX',
+                OTP_EXPIRY
+            ),
+            'Redis reset OTP write'
         );
 
         await emailQueue.add('send-reset-otp', {
@@ -232,7 +256,10 @@ class AuthService {
      */
     async resetPassword({ email, otp, newPassword }) {
 
-        const storedOTP = await redis.get(`otp:reset:${email}`);
+        const storedOTP = await withTimeout(
+            redis.get(`otp:reset:${email}`),
+            'Redis reset OTP read'
+        );
 
         if (!storedOTP || String(storedOTP) !== String(otp)) {
             throw Object.assign(
@@ -254,7 +281,10 @@ class AuthService {
 
         await user.save();
 
-        await redis.del(`otp:reset:${email}`);
+        await withTimeout(
+            redis.del(`otp:reset:${email}`),
+            'Redis reset OTP cleanup'
+        );
 
         return {
             message: 'Your password has been updated successfully'

@@ -1,18 +1,29 @@
 const Redis = require("ioredis");
 
-const redisConfig = process.env.REDIS_URL
-  ? process.env.REDIS_URL
+const redisUrl = process.env.REDIS_URL;
+const useTls =
+  process.env.REDIS_TLS === "true" ||
+  (typeof redisUrl === "string" &&
+    (redisUrl.startsWith("rediss://") || redisUrl.includes("upstash.io")));
+
+const redisConfig = redisUrl
+  ? {
+      url: redisUrl,
+      tls: useTls ? {} : undefined,
+    }
   : {
       host: process.env.REDIS_HOST || "127.0.0.1",
       port: Number(process.env.REDIS_PORT || 6379),
       password: process.env.REDIS_PASSWORD || undefined,
+      tls: useTls ? {} : undefined,
     };
 
 const redis = new Redis(redisConfig, {
-  maxRetriesPerRequest: null,
+  maxRetriesPerRequest: 1,
   enableReadyCheck: false,
+  connectTimeout: 10000,
   retryStrategy(times) {
-    return Math.min(times * 50, 2000);
+    return Math.min(times * 200, 3000);
   },
   reconnectOnError(err) {
     const targetError = "READONLY";
