@@ -13,7 +13,7 @@ const verifyOtpSchema = Joi.object({
 
 const loginSchema = Joi.object({
     identifier: Joi.string().trim(),
-    email: Joi.string().trim().lowercase().email(),
+    email: Joi.string().trim(),
     password: Joi.string().required(),
 }).or('identifier', 'email');
 
