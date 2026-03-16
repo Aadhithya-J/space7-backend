@@ -8,15 +8,27 @@ A topic-based discussion platform where each **Space** represents one discussion
 
 | Layer | Technology |
 |---|---|
-| Backend | Node.js, Express.js, Sequelize ORM, PostgreSQL |
+| Backend | Node.js, Express.js, Sequelize ORM |
+| Database | PostgreSQL (Render) |
 | Realtime | Socket.IO |
-| Queue | BullMQ + Redis |
+| Queue | BullMQ |
+| Redis | Upstash Redis |
 | File Storage | Cloudinary |
 | Auth | JWT + bcrypt |
 | Email | Nodemailer + Brevo SMTP |
 | Validation | Joi |
-| Infrastructure | Docker + Docker Compose |
+| Infrastructure | Render (Backend + Database) |
 | Frontend | React Native (Expo), Axios, Socket.IO client, React Navigation, Context API |
+
+---
+
+## Architecture
+
+- **Backend API** is deployed on **Render**
+- **PostgreSQL database** is hosted on **Render**
+- **Redis instance** used for BullMQ queues is hosted on **Upstash**
+- **Cloudinary** is used for media storage
+- **Brevo SMTP** is used for sending transactional emails
 
 ---
 
@@ -39,8 +51,7 @@ space7/
 │   │   ├── workers/        # BullMQ workers
 │   │   ├── app.js          # Express app
 │   │   └── server.js       # HTTP server entry point
-│   ├── Dockerfile
-│   └── package.json
+│   ├── package.json
 ├── mobile/
 │   ├── src/
 │   │   ├── components/     # Reusable UI components
@@ -50,56 +61,86 @@ space7/
 │   │   └── services/       # API service layer
 │   ├── App.js
 │   └── package.json
-├── docker-compose.yml
 ├── .env.example
 └── README.md
 ```
 
 ---
 
-## Getting Started
+# Getting Started (Development)
 
 ### Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) & Docker Compose  
-- [Node.js](https://nodejs.org/) 18+ (for mobile development)  
-- [Expo CLI](https://docs.expo.dev/) (for React Native)
+- Node.js **18+**
+- Expo CLI
+- PostgreSQL (optional for local development)
 
 ---
 
-## 1. Clone and configure
+## 1. Clone the repository
 
 ```bash
+git clone https://github.com/yourusername/space7.git
 cd space7
+```
+
+---
+
+## 2. Configure environment variables
+
+Create a `.env` file from the template.
+
+```bash
 cp .env.example .env
 ```
 
-Edit `.env` and fill in your actual values for:
+Fill in the required values.
 
-- `JWT_SECRET` — any strong secret string
-- `CLOUDINARY_*` — your Cloudinary credentials
-- `BREVO_SMTP_USER` — your Brevo SMTP login
-- `BREVO_SMTP_PASS` — your Brevo SMTP API key
+Important environment variables include:
 
----
+```
+JWT_SECRET=your_secret
 
-## 2. Start the backend (Docker)
+DATABASE_URL=your_render_postgres_connection_string
 
-```bash
-docker-compose up --build
+REDIS_HOST=your_upstash_redis_host
+REDIS_PORT=your_upstash_redis_port
+REDIS_PASSWORD=your_upstash_redis_password
+
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
+
+BREVO_SMTP_HOST=smtp-relay.brevo.com
+BREVO_SMTP_PORT=587
+BREVO_SMTP_USER=your_brevo_login
+BREVO_SMTP_PASS=your_brevo_api_key
 ```
 
-This starts:
+---
 
-- **Backend** on `http://localhost:5000`
-- **PostgreSQL** on port `5432`
-- **Redis** on port `6379`
+## 3. Start the backend
 
-The database schema is auto-synced by Sequelize on startup.
+```bash
+cd backend
+npm install
+npm start
+```
+
+The backend server will run on:
+
+```
+http://localhost:5000
+```
+
+The application connects to:
+
+- **Render PostgreSQL database**
+- **Upstash Redis instance**
 
 ---
 
-## 3. Start the mobile app
+## 4. Start the mobile app
 
 ```bash
 cd mobile
@@ -107,32 +148,35 @@ npm install
 npx expo start
 ```
 
-Scan the QR code with **Expo Go** (iOS/Android) or press:
+Run on:
 
-- `a` for Android emulator  
-- `i` for iOS simulator
+- Android emulator (`a`)
+- iOS simulator (`i`)
+- Physical device via **Expo Go**
 
-> **Note:** Update the `API_BASE_URL` in `mobile/src/services/api.js` and `SOCKET_URL` in `mobile/src/contexts/SocketContext.js` to your machine's local IP if testing on a physical device.
+Update the API base URL in:
+
+```
+mobile/src/services/api.js
+```
 
 Example:
 
 ```
-http://192.168.x.x:5000
-```
+https://space7backend.onrender.com/
 
----
 
-## Email Service
+# Email Service
 
 Transactional emails such as:
 
-- **Signup OTP**
-- **Password Reset OTP**
-- **Account notifications**
+- Signup OTP
+- Password Reset OTP
+- Account notifications
 
-are sent using **Brevo SMTP** through **Nodemailer**.
+are sent using **Brevo SMTP** via **Nodemailer**.
 
-Example SMTP configuration in `.env`:
+Example configuration:
 
 ```
 BREVO_SMTP_HOST=smtp-relay.brevo.com
@@ -141,11 +185,9 @@ BREVO_SMTP_USER=your_brevo_login
 BREVO_SMTP_PASS=your_brevo_api_key
 ```
 
-Brevo ensures reliable delivery and secure SMTP authentication for sending emails.
-
 ---
 
-## API Endpoints
+# API Endpoints
 
 ### Auth
 
@@ -214,7 +256,7 @@ Brevo ensures reliable delivery and secure SMTP authentication for sending email
 
 ---
 
-## Socket.IO Events
+# Socket.IO Events
 
 | Event | Direction | Description |
 |---|---|---|
@@ -226,18 +268,17 @@ Brevo ensures reliable delivery and secure SMTP authentication for sending email
 
 ---
 
-## Environment Variables
+# Environment Variables
 
 See `.env.example` for the complete list.
-
-Important ones include:
 
 | Variable | Description |
 |---|---|
 | JWT_SECRET | Secret used for signing JWT tokens |
-| DATABASE_URL | PostgreSQL connection string |
-| REDIS_HOST | Redis host |
-| REDIS_PORT | Redis port |
+| DATABASE_URL | Render PostgreSQL connection string |
+| REDIS_HOST | Upstash Redis host |
+| REDIS_PORT | Upstash Redis port |
+| REDIS_PASSWORD | Upstash Redis password |
 | CLOUDINARY_* | Cloudinary storage credentials |
 | BREVO_SMTP_HOST | Brevo SMTP server |
 | BREVO_SMTP_PORT | Brevo SMTP port |
@@ -246,5 +287,12 @@ Important ones include:
 
 ---
 
-## Demo Video
+# Demo Video
+
 [Watch Demo](project_demo.mp4)
+
+---
+
+# License
+
+MIT
