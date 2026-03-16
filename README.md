@@ -246,6 +246,5 @@ Important ones include:
 
 ---
 
-## License
-
-MIT
+## Demo Video
+[Watch Demo](project_demo.mp4)
